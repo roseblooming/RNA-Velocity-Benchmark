@@ -1,4 +1,3 @@
-import torch
 from Runner.BaseRunner import BaseRunner
 from deepvelo import train, Constants
 import scvelo as scv
@@ -6,7 +5,7 @@ from deepvelo.utils import velocity, update_dict, latent_time
 from deepvelo.utils.preprocess import autoset_coeff_s
 
 
-class DeepVeloCaiRunner(BaseRunner):
+class DeepVeloCuiRunner(BaseRunner):
     def __init__(self, adata, is_real, 
                  device = 0,
                  save_dir = "logs/deepvelo_cai"):

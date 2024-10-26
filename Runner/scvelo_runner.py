@@ -50,9 +50,9 @@ class scVeloRunner(BaseRunner):
             scv.tl.latent_time(self.adata)
         else:
             # scv.tl.recover_dynamics(self.adata, use_raw=True)
-            scv.tl.recover_dynamics(self.adata)
+            scv.tl.recover_dynamics(self.adata,n_jobs=20)
             scv.tl.velocity(self.adata, mode="dynamical")
-            scv.tl.velocity_graph(self.adata)
+            scv.tl.velocity_graph(self.adata,n_jobs=20)
             scv.tl.latent_time(self.adata)
 
 

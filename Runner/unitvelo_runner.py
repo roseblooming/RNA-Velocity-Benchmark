@@ -3,7 +3,7 @@ os.environ['TF_USE_LEGACY_KERAS'] = 'True'
 
 from Runner.BaseRunner import BaseRunner
 import unitvelo as utv
-from unitvelo.utils import init_adata_and_logs
+from unitvelo.utils import init_adata_and_logs, init_config_summary
 from unitvelo.velocity import Velocity
 import numpy as np
 import scanpy as sc
@@ -13,13 +13,16 @@ import pandas as pd
 class UniTVeloRunner(BaseRunner):
     def __init__(self, adata, is_real, 
                  device = 0, 
-                 save_dir = "logs/unitvelo"):
+                 save_dir = "logs/unitvelo",
+                 r2_adjust = False,
+                 label = None):
         self.device = device
         self.model = None
         self.is_real = is_real
         self.config = utv.config.Configuration()
-        self.config.R2_ADJUST = False
+        self.config.R2_ADJUST = r2_adjust
         self.config.GPU = device
+        self.label = label
         super().__init__("unitvelo", adata, save_dir)
 
     # def preprocess_real(self):
@@ -34,14 +37,20 @@ class UniTVeloRunner(BaseRunner):
     #     scv.pp.neighbors(self.adata)
     
     def preprocess(self):
+        # TODO: change
+        # if self.is_real == False:
+        #     self.adata.var['highly_variable'] = True
         self.adata.var['highly_variable'] = True
         os.makedirs(self.save_dir, exist_ok=True)
         data_path = f'{self.save_dir}/dataset.h5ad'
         self.adata.write(data_path, compression='gzip')
         self.adata, data_path = init_adata_and_logs(data_path, self.config)
-        sc.tl.louvain(self.adata)
         self.adata.uns['datapath'] = data_path
-        self.adata.uns['label'] = 'louvain'
+        if self.label is None:
+            sc.tl.louvain(self.adata)
+            self.adata.uns['label'] = 'louvain'
+        else:
+            self.adata.uns['label'] = self.label
         self.adata.uns['base_function'] = 'Gaussian'
         if self.config.BASIS is None:
             basis_keys = ["pca", "tsne", "umap"]

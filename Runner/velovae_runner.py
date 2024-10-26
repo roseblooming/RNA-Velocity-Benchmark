@@ -9,9 +9,9 @@ from Runner.BaseRunner import BaseRunner
 
 class VeloVAE_Runner(BaseRunner):
     def __init__(self, adata, is_real, 
-                 min_count_per_cell = None,
+                 min_count_per_cell = 0,
                  min_genes_expressed = None,
-                 compute_umap = False,
+                 compute_umap = True,
                  learning_rate = 2e-4,
                  learning_rate_ode = 5e-3,
                  learning_rate_post = 2e-4,
@@ -36,6 +36,8 @@ class VeloVAE_Runner(BaseRunner):
         super().__init__(f"velovae", adata, save_dir)
     
     def preprocess_real(self):
+        if 'neighbors' in self.adata.uns.keys():
+            del self.adata.uns['neighbors']
         vv.preprocess(self.adata,
                       n_gene=self.adata.shape[1],
                       min_count_per_cell=self.min_count_per_cell,

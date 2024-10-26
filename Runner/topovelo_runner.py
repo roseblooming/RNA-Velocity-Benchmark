@@ -10,7 +10,7 @@ class TopoVeloRunner(BaseRunner):
     def __init__(self, adata, spatial_key, is_real, 
                  min_count_per_cell=None,
                  min_genes_expressed=None,
-                 compute_umap=False,
+                 compute_umap=True,
                  learning_rate = 2e-4,
                  learning_rate_ode = 5e-3,
                  learning_rate_post = 2e-4,
@@ -21,8 +21,8 @@ class TopoVeloRunner(BaseRunner):
         self.vae = None
         self.is_real = is_real
         self.spatial_key = spatial_key
-        self.min_count_per_cell = min_count_per_cell,
-        self.min_genes_expressed = min_genes_expressed,
+        self.min_count_per_cell = min_count_per_cell
+        self.min_genes_expressed = min_genes_expressed
         self.compute_umap = compute_umap
         # self.learning_rate = learning_rate
         # self.learning_rate_ode = learning_rate_ode
@@ -39,12 +39,15 @@ class TopoVeloRunner(BaseRunner):
         super().__init__(model_name=f"topovelo", adata=adata, save_dir=save_dir)
     
     def preprocess_real(self):
+        if 'neighbors' in self.adata.uns.keys():
+            del self.adata.uns['neighbors']
         tpv.preprocess(self.adata,
                        n_gene=self.adata.shape[1],
                        spatial_key=self.spatial_key,
                        min_count_per_cell=self.min_count_per_cell,
                        min_genes_expressed=self.min_genes_expressed,
-                       compute_umap=self.compute_umap
+                       compute_umap=self.compute_umap,
+                       use_highly_variable=None
                        )
     
     def preprocess_simulation(self):

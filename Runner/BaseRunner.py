@@ -106,6 +106,7 @@ class BaseRunner:
         self.train()
         t_end = time.time()
         self.run_time = t_end - t_start
+        print(f"run time: {self.run_time}")
 
         stop_event.set()
         cpu_monitor_process.join()
