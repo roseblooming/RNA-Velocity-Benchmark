@@ -1,3 +1,6 @@
 __pycache__/
 .vscode/
 logs/
+results/
+scripts/
+env_config/
