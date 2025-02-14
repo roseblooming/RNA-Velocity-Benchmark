@@ -4,23 +4,23 @@ import numpy as np
 
 
 class scVeloRunner(BaseRunner):
-    def __init__(self, model, adata, is_real, save_dir="logs/scvelo"):
+    def __init__(self, model, adata, is_real, pp_choice=0, save_dir="logs/scvelo"):
         self.model = model
-        self.is_real = is_real
+        # self.is_real = is_real
         self.t_cell_gene_key = 'fit_t'
-        super().__init__(model_name=f"scvelo_{model}", adata=adata, save_dir=save_dir)
+        super().__init__(model_name=f"scvelo_{model}", adata=adata, is_real=is_real, pp_choice=pp_choice, save_dir=save_dir)
     
     def preprocess_real(self):
         scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=2000)
         scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
     
     def preprocess_simulation(self):
-        scv.pp.moments(self.adata)
+        scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
     
     def preprocess(self):
-        if self.is_real:
+        if self.pp_choice == 0 and self.is_real:
             self.preprocess_real()
-        else:
+        elif self.pp_choice == 0 or self.pp_choice == 1:
             self.preprocess_simulation()
 
     def get_reconstruct_us(self):

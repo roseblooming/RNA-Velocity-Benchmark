@@ -901,7 +901,6 @@ def eval_dv(adata, key, gene_mask=None):
         float: Mean squared error on the test set per cell per gene
         float: Mean absolute error on the training set per cell per gene
         float: Mean absolute error on the test set per cell per gene
-        float: Mean absolute error on the training set per cell per gene
         float: Mean Gaussian log likelihood on the training set per cell per gene
         float: Mean Gaussian log likelihood on the test set per cell per gene
     """

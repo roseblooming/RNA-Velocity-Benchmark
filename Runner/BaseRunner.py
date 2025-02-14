@@ -4,13 +4,15 @@ import scvelo as scv
 import time
 import numpy as np
 import scanpy as sc
-from utils.monitor import monitor_memory_usage, monitor_gpu_memory_usage
+from utils.monitor import monitor_cpu_memory_usage, monitor_gpu_memory_usage
 
 class BaseRunner:
-    def __init__(self, model_name, adata:AnnData, save_dir="logs/"):
+    def __init__(self, model_name, adata:AnnData, is_real, pp_choice=0, save_dir="logs/"):
         self.model_name = model_name
         self.adata = adata
         self.save_dir = save_dir
+        self.is_real = is_real
+        self.pp_choice = pp_choice
         
         # evaluate_results
         self.reconstruct_u = None
@@ -19,8 +21,8 @@ class BaseRunner:
         self.latent_time = None
 
         self.run_time = None
-        self.max_mem_usage = 0
-        self.max_gpu_mem_usage = 0
+        self.max_cpu_mem_usage = None
+        self.max_gpu_mem_usage = None
         
         # kinetic parameters
         self.alpha = None
@@ -95,7 +97,7 @@ class BaseRunner:
         if hasattr(self, 'device'):
             gpu_result_queue = multiprocessing.Queue()
         stop_event = multiprocessing.Event()
-        cpu_monitor_process = multiprocessing.Process(target=monitor_memory_usage, args=(pid, cpu_result_queue, stop_event))
+        cpu_monitor_process = multiprocessing.Process(target=monitor_cpu_memory_usage, args=(pid, cpu_result_queue, stop_event))
         if hasattr(self, 'device'):
             gpu_monitor_process = multiprocessing.Process(target=monitor_gpu_memory_usage, args=(pid, self.device, gpu_result_queue, stop_event))
         cpu_monitor_process.start()
@@ -112,7 +114,7 @@ class BaseRunner:
         cpu_monitor_process.join()
         if hasattr(self, 'device'):
             gpu_monitor_process.join()
-        self.max_mem_usage = cpu_result_queue.get()
+        self.max_cpu_mem_usage = cpu_result_queue.get()
         if hasattr(self, 'device'):
             self.max_gpu_mem_usage = gpu_result_queue.get()
         else:
@@ -127,13 +129,16 @@ class BaseRunner:
     
     def save_adata(self):
         self.adata.layers[self.vkey] = self.velocity
-        self.adata.obs[self.tkey] = self.latent_time
-        self._set_kinetic_param(f"{self.model_name}_alpha", self.alpha)
-        self._set_kinetic_param(f"{self.model_name}_beta", self.beta)
-        self._set_kinetic_param(f"{self.model_name}_gamma", self.gamma)
+        if self.latent_time is not None:
+            self.adata.obs[self.tkey] = self.latent_time
+        if self.alpha is not None:
+            self._set_kinetic_param(f"{self.model_name}_alpha", self.alpha)
+        if self.beta is not None:
+            self._set_kinetic_param(f"{self.model_name}_beta", self.beta)
+        if self.gamma is not None:
+            self._set_kinetic_param(f"{self.model_name}_gamma", self.gamma)
         if self.reconstruct_u is not None:
             self.adata.layers[self.u_hat_key] = self.reconstruct_u
-        if self.reconstruct_s is not None:
             self.adata.layers[self.s_hat_key] = self.reconstruct_s
         import os
         os.makedirs(self.save_dir,exist_ok=True)

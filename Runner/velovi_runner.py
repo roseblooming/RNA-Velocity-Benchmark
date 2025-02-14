@@ -11,31 +11,31 @@ import scanpy as sc
 # from typing import Optional
 
 class veloVI_Runner(BaseRunner):
-    def __init__(self, adata, is_real, 
+    def __init__(self, adata, is_real, pp_choice=0, 
                  device = 0, 
                  save_dir = "logs/velovi"):
         self.vae=None
-        self.is_real = is_real
+        # self.is_real = is_real
         self.device = device
         self.infered=False
-        super().__init__(f"velovi", adata, save_dir)
+        super().__init__(f"velovi", adata, is_real, pp_choice, save_dir)
     
     def preprocess_real(self):
-        scv.pp.filter_and_normalize(self.adata, min_shared_counts=30, n_top_genes=2000)
+        scv.pp.filter_and_normalize(self.adata, min_shared_counts=30, n_top_genes=2000) # FIXME: min_shared_counts
         scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
         # self.adata = preprocess_data(self.adata)
-        self.adata = velovi.preprocess_data(self.adata)
     
     def preprocess_simulation(self):
-        scv.pp.neighbors(self.adata)
+        # scv.pp.neighbors(self.adata)
         scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
-        scv.tl.velocity(self.adata, mode='deterministic', use_raw=True)
+        # scv.tl.velocity(self.adata, mode='deterministic', use_raw=True)
     
     def preprocess(self):
-        if self.is_real:
+        if self.pp_choice == 0 and self.is_real:
             self.preprocess_real()
-        else:
+        elif self.pp_choice == 0 or self.pp_choice == 1:
             self.preprocess_simulation()
+        self.adata = velovi.preprocess_data(self.adata)
 
     def set_model(self):
         # scv.tl.VELOVI.setup_anndata(self.adata, "Ms", "Mu")

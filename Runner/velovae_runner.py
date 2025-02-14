@@ -8,7 +8,7 @@ from Runner.BaseRunner import BaseRunner
 #from BaseRunner import BaseRunner
 
 class VeloVAE_Runner(BaseRunner):
-    def __init__(self, adata, is_real, 
+    def __init__(self, adata, is_real, pp_choice=0, 
                  min_count_per_cell = 0,
                  min_genes_expressed = None,
                  compute_umap = True,
@@ -20,7 +20,7 @@ class VeloVAE_Runner(BaseRunner):
                  device = 0, 
                  save_dir = "logs/velovae"):
         self.vae = None
-        self.is_real = is_real
+        # self.is_real = is_real
         self.min_count_per_cell = min_count_per_cell
         self.min_genes_expressed = min_genes_expressed
         self.compute_umap = compute_umap
@@ -33,11 +33,9 @@ class VeloVAE_Runner(BaseRunner):
             'learning_rate_ode': learning_rate_ode,
             'learning_rate_post': learning_rate_post
         }
-        super().__init__(f"velovae", adata, save_dir)
+        super().__init__(f"velovae", adata, is_real, pp_choice, save_dir)
     
     def preprocess_real(self):
-        if 'neighbors' in self.adata.uns.keys():
-            del self.adata.uns['neighbors']
         vv.preprocess(self.adata,
                       n_gene=self.adata.shape[1],
                       min_count_per_cell=self.min_count_per_cell,
@@ -56,12 +54,19 @@ class VeloVAE_Runner(BaseRunner):
         scv.tl.umap(self.adata)
 
     def preprocess(self):
-        if self.is_real:
-            self.preprocess_real()
-        else:
-            self.preprocess_simulation()
-        self.adata.layers["spliced"]=scipy.sparse.csr_matrix(self.adata.layers["spliced"])
-        self.adata.layers["unspliced"]=scipy.sparse.csr_matrix(self.adata.layers["unspliced"])
+        if self.pp_choice == 0:
+            if self.is_real:
+                self.preprocess_real()
+            else:
+                self.preprocess_simulation()
+        elif self.pp_choice == 1:
+            sc.pp.pca(self.adata, n_comps=30)
+            sc.pp.neighbors(self.adata, n_neighbors=30)
+            scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
+            scv.tl.umap(self.adata)
+        # TODO: check if this is necessary
+        # self.adata.layers["spliced"]=scipy.sparse.csr_matrix(self.adata.layers["spliced"])
+        # self.adata.layers["unspliced"]=scipy.sparse.csr_matrix(self.adata.layers["unspliced"])
 
     def set_model(self):
         self.vae=vv.VAE(self.adata,

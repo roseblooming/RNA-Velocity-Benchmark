@@ -1,15 +1,15 @@
 from Runner.BaseRunner import BaseRunner
 from deepvelo import train, Constants
 import scvelo as scv
-from deepvelo.utils import velocity, update_dict, latent_time
+from deepvelo.utils import velocity, update_dict, latent_time, save_model_and_config
 from deepvelo.utils.preprocess import autoset_coeff_s
 
 
 class DeepVeloCuiRunner(BaseRunner):
-    def __init__(self, adata, is_real, 
+    def __init__(self, adata, is_real, pp_choice=0,
                  device = 0,
-                 save_dir = "logs/deepvelo_cai"):
-        self.is_real = is_real
+                 save_dir = "logs/deepvelo_cui"):
+        # self.is_real = is_real
         self.device = device
         configs = {
             "name": "DeepVelo", # name of the experiment
@@ -19,16 +19,24 @@ class DeepVeloCuiRunner(BaseRunner):
             "trainer": {"save_dir":save_dir}
         }
         self.configs = update_dict(Constants.default_configs, configs)
-        super().__init__(model_name="deepvelo_cai", adata=adata, save_dir=save_dir)
+        super().__init__(model_name="deepvelo_cui", adata=adata, is_real=is_real, pp_choice=pp_choice, save_dir=save_dir)
 
-    def preprocess(self):
-        if self.is_real:
-            scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=2000)
+    def preprocess_real(self):
+        scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=2000)
         scv.pp.moments(self.adata, n_neighbors=30, n_pcs=30)
 
-    def train(self):
+    def preprocess_simulation(self):
+        scv.pp.moments(self.adata, n_neighbors=30, n_pcs=30)
+
+    def preprocess(self):
+        if self.pp_choice == 0 and self.is_real:
+            self.preprocess_real()
+        elif self.pp_choice == 0 or self.pp_choice == 1:
+            self.preprocess_simulation()
         velocity(self.adata)
-        train(self.adata, self.configs)
+
+    def train(self):
+        self.trainer = train(self.adata, self.configs)
 
     def get_velocity(self):
         return self.adata.layers['velocity']
@@ -47,3 +55,7 @@ class DeepVeloCuiRunner(BaseRunner):
         fit_u = (self.adata.layers['cell_specific_alpha'] - self.adata.layers['velocity_unspliced']) / self.adata.layers['cell_specific_beta']
         fit_s = (self.adata.layers['cell_specific_alpha'] - self.adata.layers['velocity_unspliced'] - self.adata.layers['velocity']) / self.adata.layers['cell_specific_gamma']
         return fit_u, fit_s
+    
+    def save_adata(self):
+        save_model_and_config(self.trainer.model, self.configs, self.save_dir)
+        return super().save_adata()

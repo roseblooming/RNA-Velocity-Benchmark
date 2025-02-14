@@ -2,5 +2,6 @@ __pycache__/
 .vscode/
 logs/
 results/
-scripts/
+scripts_back/
 env_config/
+topo_simu/

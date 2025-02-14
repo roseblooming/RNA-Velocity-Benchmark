@@ -3,52 +3,58 @@ os.environ['TF_USE_LEGACY_KERAS'] = 'True'
 
 from Runner.BaseRunner import BaseRunner
 import unitvelo as utv
-from unitvelo.utils import init_adata_and_logs, init_config_summary
+from unitvelo.utils import remove_dir
 from unitvelo.velocity import Velocity
 import numpy as np
 import scanpy as sc
 import pandas as pd
+import scvelo as scv
 
 
 class UniTVeloRunner(BaseRunner):
-    def __init__(self, adata, is_real, 
+    def __init__(self, adata, is_real, pp_choice=0, 
                  device = 0, 
                  save_dir = "logs/unitvelo",
                  r2_adjust = False,
                  label = None):
         self.device = device
         self.model = None
-        self.is_real = is_real
+        # self.is_real = is_real
         self.config = utv.config.Configuration()
         self.config.R2_ADJUST = r2_adjust
         self.config.GPU = device
         self.label = label
-        super().__init__("unitvelo", adata, save_dir)
+        super().__init__("unitvelo", adata, is_real, pp_choice, save_dir)
 
-    # def preprocess_real(self):
-    #     scv.pp.filter_and_normalize(self.adata, 
-    #                                 min_shared_counts=self.config.MIN_SHARED_COUNTS, 
-    #                                 n_top_genes=self.config.N_TOP_GENES)
-    #     scv.pp.moments(self.adata, 
-    #                     n_pcs=self.config.N_PCS, 
-    #                     n_neighbors=self.config.N_NEIGHBORS)
+    def preprocess_real(self):
+        scv.pp.filter_and_normalize(self.adata, 
+                                    min_shared_counts=self.config.MIN_SHARED_COUNTS, 
+                                    n_top_genes=self.config.N_TOP_GENES)
+        scv.pp.moments(self.adata, 
+                        n_pcs=self.config.N_PCS, 
+                        n_neighbors=self.config.N_NEIGHBORS)
     
-    # def preprocess_simulation(self):
-    #     scv.pp.neighbors(self.adata)
+    def preprocess_simulation(self):
+        scv.pp.moments(self.adata, 
+                        n_pcs=self.config.N_PCS, 
+                        n_neighbors=self.config.N_NEIGHBORS)
     
     def preprocess(self):
-        # TODO: change
-        # if self.is_real == False:
-        #     self.adata.var['highly_variable'] = True
-        self.adata.var['highly_variable'] = True
-        os.makedirs(self.save_dir, exist_ok=True)
+        if 'highly_variable' not in self.adata.var:
+            self.adata.var['highly_variable'] = True
+        if self.pp_choice == 0 and self.is_real:
+            self.preprocess_real()
+        elif self.pp_choice == 0 or self.pp_choice == 1:
+            self.preprocess_simulation()
+        # os.makedirs(self.save_dir, exist_ok=True)
         data_path = f'{self.save_dir}/dataset.h5ad'
-        self.adata.write(data_path, compression='gzip')
-        self.adata, data_path = init_adata_and_logs(data_path, self.config)
+        # self.adata.write(data_path, compression='gzip')
+        # _, data_path = init_adata_and_logs(data_path, self.config)
+        remove_dir(data_path, self.adata)
         self.adata.uns['datapath'] = data_path
         if self.label is None:
-            sc.tl.louvain(self.adata)
-            self.adata.uns['label'] = 'louvain'
+            sc.tl.leiden(self.adata, resolution=0.2) # TODO: leiden resolution
+            self.adata.uns['label'] = 'leiden'
         else:
             self.adata.uns['label'] = self.label
         self.adata.uns['base_function'] = 'Gaussian'
@@ -84,9 +90,9 @@ class UniTVeloRunner(BaseRunner):
     def train(self):
         self.model.get_velo_genes()
         self.adata = self.model.fit_velo_genes(self.adata.uns['basis'], 0)
-        if 'examine_genes' in self.adata.uns.keys():
-            from unitvelo.individual_gene import exam_genes
-            exam_genes(self.adata, self.adata.uns['examine_genes'])
+        # if 'examine_genes' in self.adata.uns.keys():
+        #     from unitvelo.individual_gene import exam_genes
+        #     exam_genes(self.adata, self.adata.uns['examine_genes'])
     
     def save_adata(self):
         #TODO save model

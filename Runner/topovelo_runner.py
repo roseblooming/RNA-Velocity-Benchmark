@@ -7,7 +7,7 @@ import scanpy as sc
 
 
 class TopoVeloRunner(BaseRunner):
-    def __init__(self, adata, spatial_key, is_real, 
+    def __init__(self, adata, spatial_key, is_real, pp_choice=0, 
                  min_count_per_cell=None,
                  min_genes_expressed=None,
                  compute_umap=True,
@@ -19,8 +19,13 @@ class TopoVeloRunner(BaseRunner):
                  dim_z = 5,
                  save_dir="logs/scvelo"):
         self.vae = None
-        self.is_real = is_real
-        self.spatial_key = spatial_key
+        # self.is_real = is_real
+        if spatial_key in adata.obsm.keys():
+            self.spatial_key = spatial_key
+        elif f'X_{spatial_key}' in adata.obsm.keys():
+            self.spatial_key = f'X_{spatial_key}'
+        else:
+            raise KeyError(f"spatial_key {spatial_key} not found in adata.obsm")
         self.min_count_per_cell = min_count_per_cell
         self.min_genes_expressed = min_genes_expressed
         self.compute_umap = compute_umap
@@ -36,11 +41,9 @@ class TopoVeloRunner(BaseRunner):
         self.tmax = tmax
         self.dim_z = dim_z
         self.infered = False
-        super().__init__(model_name=f"topovelo", adata=adata, save_dir=save_dir)
+        super().__init__(model_name=f"topovelo", adata=adata, is_real=is_real, pp_choice=pp_choice, save_dir=save_dir)
     
     def preprocess_real(self):
-        if 'neighbors' in self.adata.uns.keys():
-            del self.adata.uns['neighbors']
         tpv.preprocess(self.adata,
                        n_gene=self.adata.shape[1],
                        spatial_key=self.spatial_key,
@@ -61,10 +64,13 @@ class TopoVeloRunner(BaseRunner):
         scv.tl.umap(self.adata)
     
     def preprocess(self):
-        if self.is_real:
-            self.preprocess_real()
-        else:
-            self.preprocess_simulation()
+        if self.pp_choice == 0:
+            if self.is_real:
+                self.preprocess_real()
+            else:
+                self.preprocess_simulation()
+        elif self.pp_choice == 1:
+            scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
         # build graph
         tpv.build_spatial_graph(self.adata,
                                 spatial_key=self.spatial_key,

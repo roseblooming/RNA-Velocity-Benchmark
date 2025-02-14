@@ -3,7 +3,7 @@ import psutil
 import time
 
 
-def monitor_memory_usage(pid, result_queue, stop_event, interval=1):
+def monitor_cpu_memory_usage(pid, result_queue, stop_event, interval=1):
     process = psutil.Process(pid)
     max_memory = 0
     while not stop_event.is_set():
