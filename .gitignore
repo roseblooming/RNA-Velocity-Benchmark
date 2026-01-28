@@ -9,5 +9,6 @@ bash/
 plot/
 scripts/
 notebooks/
-plot/
 utils/plotting.py
+figures/
+figures_new/
