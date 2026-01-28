@@ -434,7 +434,7 @@ class BaseEvaluator:
         self.compute_velocity_acc(adata_non_nan, vkey=vkey)
         self.compute_cbdir(adata_non_nan, vkey=vkey)
         self.compute_spatial_velo_consist(adata_non_nan, vkey)
-        self.metric.train_time = runner.run_time
+        self.metric.train_time = runner.cpu_time
 
     def draw_spatial_velocity(self, adata, basis, vkey, color):
         scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=self.spatial_key)

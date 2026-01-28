@@ -6,11 +6,9 @@ from deepvelo.utils.preprocess import autoset_coeff_s
 
 
 class DeepVeloCuiRunner(BaseRunner):
-    def __init__(self, adata, is_real, pp_choice=0,
-                 device = 0,
-                 save_dir = "logs/deepvelo_cui"):
-        # self.is_real = is_real
-        self.device = device
+    def __init__(self, adata, pp_choice=0, n_hvg=2000,
+                 device = 0, 
+                 save_dir = "logs/deepvelo_cui", label=None):
         configs = {
             "name": "DeepVelo", # name of the experiment
             "loss": {"args": {"coeff_s": autoset_coeff_s(adata)}}, # Automatic setting of the spliced correlation objective
@@ -19,20 +17,22 @@ class DeepVeloCuiRunner(BaseRunner):
             "trainer": {"save_dir":save_dir}
         }
         self.configs = update_dict(Constants.default_configs, configs)
-        super().__init__(model_name="deepvelo_cui", adata=adata, is_real=is_real, pp_choice=pp_choice, save_dir=save_dir)
+        super().__init__(model_name="deepvelo_cui", adata=adata, pp_choice=pp_choice, n_hvg=n_hvg, save_dir=save_dir, label=label, device=device)
 
-    def preprocess_real(self):
-        scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=2000)
-        scv.pp.moments(self.adata, n_neighbors=30, n_pcs=30)
+    # def preprocess_real(self):
+    #     scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=self.n_hvg)
+    #     scv.pp.moments(self.adata, n_neighbors=30, n_pcs=30)
 
-    def preprocess_simulation(self):
-        scv.pp.moments(self.adata, n_neighbors=30, n_pcs=30)
+    # def preprocess_simulation(self):
+    #     scv.pp.moments(self.adata, n_neighbors=30, n_pcs=30)
 
     def preprocess(self):
-        if self.pp_choice == 0 and self.is_real:
-            self.preprocess_real()
-        elif self.pp_choice == 0 or self.pp_choice == 1:
-            self.preprocess_simulation()
+        if self.pp_choice == 0:
+            scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=self.n_hvg)
+        elif self.pp_choice == 3:
+            scv.pp.filter_and_normalize(self.adata)
+        if self.pp_choice in [0, 1, 3]:
+            scv.pp.moments(self.adata, n_neighbors=30, n_pcs=30)
         velocity(self.adata)
 
     def train(self):

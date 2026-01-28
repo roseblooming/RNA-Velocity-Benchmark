@@ -1,17 +1,14 @@
 from anndata import AnnData
-import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import mean_squared_error
 from sklearn.neighbors import NearestNeighbors
+import numpy as np
 import pandas as pd
 import scanpy as sc
 import scvelo as scv
 from prettytable import PrettyTable
 from Runner.BaseRunner import BaseRunner
-from Runner.scvelo_runner import scVeloRunner
 import matplotlib.pyplot as plt
-import scvelo as scv
-import warnings
 
 ########################################################
 # Reference TopoVelo
@@ -527,8 +524,12 @@ def compute_spatial_graph(adata, spatial_key, n_spatial_neighbors):
     nn = NearestNeighbors(n_neighbors=n_spatial_neighbors)
     nn.fit(X_pos)
     adata.obsp['spatial_graph'] = nn.kneighbors_graph()
-    adata.obsp['connectivities'] = nn.kneighbors_graph(mode='connectivity')
-    adata.obsp['distances'] = nn.kneighbors_graph(mode='distance')
+    # NOTE: modified on 17th Apr. 2025
+    # connectivities -> spatial_connectivities
+    # distances -> spatial_distances
+    # to avoid overwriting original connectivities and distances computed by scVelo's neighbors
+    adata.obsp['spatial_connectivities'] = nn.kneighbors_graph(mode='connectivity')
+    adata.obsp['spatial_distances'] = nn.kneighbors_graph(mode='distance')
 
 
 ########################################################
@@ -550,10 +551,10 @@ def velocity_accuracy(adata, vkey_pred="velocity_pred", vkey_true="velocity"):
     """
     if vkey_pred in adata.layers:
         cosine_sim = cosine_similarity(adata.layers[vkey_pred], adata.layers[vkey_true])
-        cosine_sim = cosine_sim.diagonal().mean()
+        cosine_sim = cosine_sim.diagonal()#.mean()
     else:
         cosine_sim = cosine_similarity(adata.obsm[vkey_pred], adata.obsm[vkey_true])
-        cosine_sim = cosine_sim.diagonal().mean()
+        cosine_sim = cosine_sim.diagonal()#.mean()
     return cosine_sim
 
 
@@ -598,9 +599,10 @@ class VelocityMetric:
                  velocity_acc=None, 
                  spatial_time_consist=None, 
                  spatial_velo_consist=None,
-                    velo_na_ratio=None,
-                    velo_zero_ratio=None,
-                 train_time=None,
+                    # velo_na_ratio=None,
+                    # velo_zero_ratio=None,
+                 cpu_time=None,
+                 gpu_time=None,
                  cpu_mem_usage=None,
                  gpu_mem_usage=None,
                  title=None,
@@ -626,7 +628,7 @@ class VelocityMetric:
 
         self.velocity_consistency = velocity_consistency if velocity_consistency is not None else {}
 
-        self.velocity_acc = velocity_acc
+        self.velocity_acc = velocity_acc if velocity_acc is not None else {}
         self.time_corr_spearman = time_corr_spearman if time_corr_spearman is not None else {}
         # self.time_corr_spearman_cell_gene = time_corr_spearman_cell_gene
 
@@ -637,12 +639,13 @@ class VelocityMetric:
         # self.abundance_mse_s = None
         # self.abundance_mse = abundance_mse
 
-        self.velo_na_ratio = velo_na_ratio if velo_na_ratio is not None else {}
-        self.velo_zero_ratio = velo_zero_ratio if velo_zero_ratio is not None else {}
+        # self.velo_na_ratio = velo_na_ratio if velo_na_ratio is not None else {}
+        # self.velo_zero_ratio = velo_zero_ratio if velo_zero_ratio is not None else {}
         # self.velo_aggr_na_ratio = None
         # self.velo_aggr_zero_ratio = None
 
-        self.train_time = train_time
+        self.cpu_time = cpu_time
+        self.gpu_time = gpu_time
         self.cpu_mem_usage = cpu_mem_usage
         self.gpu_mem_usage = gpu_mem_usage
     
@@ -755,8 +758,11 @@ class VelocityMetric:
             for key, value in self.time_corr_spearman.items():
                 table.add_row([f"time_corr_spearman_{key}", round(value, 4)])
         # table.add_row(["time_corr_spearman_cell_gene", self.time_corr_spearman_cell_gene])
-        table.add_row(["velocity_acc", round(self.velocity_acc, 4) if self.velocity_acc is not None else None])
+        # table.add_row(["velocity_acc", round(self.velocity_acc, 4) if self.velocity_acc is not None else None])
         # table.add_row(["spatial_time_consist", round(self.spatial_time_consist, 4) if self.spatial_time_consist is not None else None])
+        if isinstance(self.velocity_acc, dict):
+            for key, value in self.velocity_acc.items():
+                table.add_row([f"velocity_acc_{key}", round(np.nanmean(value), 4)])
         if isinstance(self.spatial_time_consist, dict):
             for key, value in self.spatial_time_consist.items():
                 table.add_row([f"spatial_time_consist_{key}", round(value, 4)])
@@ -764,17 +770,18 @@ class VelocityMetric:
             for key, value in self.spatial_velo_consist.items():
                 table.add_row([f"spatial_velo_consist_{key}", round(np.nanmean(value), 4)])
         # table.add_row(["spatial_velo_consist", round(self.spatial_velo_consist, 4) if self.spatial_velo_consist is not None else None])
-        if isinstance(self.velo_na_ratio, dict):
-            for key, value in self.velo_na_ratio.items():
-                table.add_row([f"velo_na_ratio_{key}", round(value, 4) if value is not None else None])
-        # table.add_row(["velo_na_ratio", round(self.velo_na_ratio, 4) if self.velo_na_ratio is not None else None])
-        if isinstance(self.velo_zero_ratio, dict):
-            for key, value in self.velo_zero_ratio.items():
-                table.add_row([f"velo_zero_ratio_{key}", round(value, 4) if value is not None else None])
+        # if isinstance(self.velo_na_ratio, dict):
+        #     for key, value in self.velo_na_ratio.items():
+        #         table.add_row([f"velo_na_ratio_{key}", round(value, 4) if value is not None else None])
+        # # table.add_row(["velo_na_ratio", round(self.velo_na_ratio, 4) if self.velo_na_ratio is not None else None])
+        # if isinstance(self.velo_zero_ratio, dict):
+        #     for key, value in self.velo_zero_ratio.items():
+        #         table.add_row([f"velo_zero_ratio_{key}", round(value, 4) if value is not None else None])
         # table.add_row(["velo_zero_ratio", round(self.velo_zero_ratio, 4) if self.velo_zero_ratio is not None else None])
         # table.add_row(["abundance_mse_u", round(self.abundance_mse_u, 4) if self.abundance_mse_u is not None else None])
         # table.add_row(["abundance_mse_s", round(self.abundance_mse_s, 4) if self.abundance_mse_s is not None else None])
-        table.add_row(["train_time", round(self.train_time, 2) if self.train_time is not None else None])
+        table.add_row(["cpu_time", round(self.cpu_time, 2) if self.cpu_time is not None else None])
+        table.add_row(["gpu_time", round(self.gpu_time, 2) if self.gpu_time is not None else None])
         table.add_row(["cpu_mem_usage", round(self.cpu_mem_usage, 2) if self.cpu_mem_usage is not None else None])
         table.add_row(["gpu_mem_usage", round(self.gpu_mem_usage) if self.gpu_mem_usage is not None else None])
         return table.__str__()
@@ -792,14 +799,15 @@ class VelocityMetric:
                     #    "velocity_consistency": self.velocity_consistency,
                     #    "time_corr_spearman": self.time_corr_spearman,
                     #    "time_corr_spearman_cell_gene": self.time_corr_spearman_cell_gene,
-                       "velocity_acc": self.velocity_acc,
+                    #    "velocity_acc": self.velocity_acc,
                     #    "spatial_time_consist": self.spatial_time_consist,
                     #    "spatial_velo_consist": self.spatial_velo_consist,
                     #    "velo_na_ratio": self.velo_na_ratio,
                     #    "velo_zero_ratio": self.velo_zero_ratio,
                     #    "abundance_mse_u": self.abundance_mse_u,
                     #    "abundance_mse_s": self.abundance_mse_s,
-                        "train_time": self.train_time,
+                        "cpu_time": self.cpu_time,
+                        "gpu_time": self.gpu_time,
                        "cpu_mem_usage": self.cpu_mem_usage,
                        "gpu_mem_usage": self.gpu_mem_usage
                        }
@@ -845,63 +853,70 @@ class VelocityMetric:
         if isinstance(self.time_corr_spearman, dict):
             for key, value in self.time_corr_spearman.items():
                 metric_dict[f"time_corr_spearman_{key}"] = value
+        if isinstance(self.velocity_acc, dict):
+            for key, value in self.velocity_acc.items():
+                metric_dict[f"velocity_acc_{key}"] = np.nanmean(value)
         if isinstance(self.spatial_time_consist, dict):
             for key, value in self.spatial_time_consist.items():
                 metric_dict[f"spatial_time_consist_{key}"] = value
         if isinstance(self.spatial_velo_consist, dict):
             for key, value in self.spatial_velo_consist.items():
                 metric_dict[f"spatial_velo_consist_{key}"] = np.nanmean(value)
-        if isinstance(self.velo_na_ratio, dict):
-            for key, value in self.velo_na_ratio.items():
-                metric_dict[f"velo_na_ratio_{key}"] = value
-        if isinstance(self.velo_zero_ratio, dict):
-            for key, value in self.velo_zero_ratio.items():
-                metric_dict[f"velo_zero_ratio_{key}"] = value
+        # if isinstance(self.velo_na_ratio, dict):
+        #     for key, value in self.velo_na_ratio.items():
+        #         metric_dict[f"velo_na_ratio_{key}"] = value
+        # if isinstance(self.velo_zero_ratio, dict):
+        #     for key, value in self.velo_zero_ratio.items():
+        #         metric_dict[f"velo_zero_ratio_{key}"] = value
         return pd.Series(metric_dict)
 
 # NOTE: unused
-def evaluate_metrics(adata, cluster_edges=None, cluster_key="t_cluster", 
-                     t_key_pred="pred_t", 
-                     t_key_true="true_t",
-                     v_key_pred="velocity_pred", 
-                     v_key_true="true_velocity", 
-                     spatial_graph_key="spatial_graph", 
-                     spatial_key="X_coord",
-                     n_neighbors=30,
-                     title=None):
-    metric = VelocityMetric(title=title)
-    metric.time_corr_spearman = adata.obs[[t_key_pred, t_key_true]].corr(method="spearman").loc[t_key_true, t_key_pred]
-    if spatial_key not in adata.obsp.keys():
-        compute_spatial_graph(adata, spatial_key, n_neighbors)
-    if cluster_key not in adata.obs.keys():
-        cluster_edges = cluster_cells_by_time(adata, t_key_true)
-    metric.velocity_acc = velocity_accuracy(adata, v_key_pred, v_key_true)
-    metric.spatial_time_consist = spatial_time_consistency(adata, t_key_pred, spatial_graph_key)
-    metric.spatial_velo_consist = spatial_velocity_consistency(adata, v_key_pred, spatial_graph_key)
-    # sc.pp.pca(adata)
-    scv.pp.neighbors(adata, use_rep="X_coord", n_neighbors=n_neighbors)
-    scv.tl.velocity_graph(adata, vkey=v_key_pred)
-    scv.tl.velocity_embedding(adata, basis="coord", vkey=v_key_pred)
-    adata_non_nan = adata[~np.isnan(adata.obsm[f"{v_key_pred}_coord"])].copy()
-    metric.velo_emb_na_ratio = 1 - adata_non_nan.shape[0] / adata.shape[0]
-    metric.gen_cbdir = gen_cross_boundary_correctness(adata, cluster_key, v_key_pred, cluster_edges, t_key_true, spatial_graph_key, x_emb="X_coord")
-    return metric
+# def evaluate_metrics(adata, cluster_edges=None, cluster_key="t_cluster", 
+#                      t_key_pred="pred_t", 
+#                      t_key_true="true_t",
+#                      v_key_pred="velocity_pred", 
+#                      v_key_true="true_velocity", 
+#                      spatial_graph_key="spatial_graph", 
+#                      spatial_key="X_coord",
+#                      n_neighbors=30,
+#                      title=None):
+#     metric = VelocityMetric(title=title)
+#     metric.time_corr_spearman = adata.obs[[t_key_pred, t_key_true]].corr(method="spearman").loc[t_key_true, t_key_pred]
+#     if spatial_key not in adata.obsp.keys():
+#         compute_spatial_graph(adata, spatial_key, n_neighbors)
+#     if cluster_key not in adata.obs.keys():
+#         cluster_edges = cluster_cells_by_time(adata, t_key_true)
+#     metric.velocity_acc = velocity_accuracy(adata, v_key_pred, v_key_true)
+#     metric.spatial_time_consist = spatial_time_consistency(adata, t_key_pred, spatial_graph_key)
+#     metric.spatial_velo_consist = spatial_velocity_consistency(adata, v_key_pred, spatial_graph_key)
+#     # sc.pp.pca(adata)
+#     scv.pp.neighbors(adata, use_rep="X_coord", n_neighbors=n_neighbors)
+#     scv.tl.velocity_graph(adata, vkey=v_key_pred)
+#     scv.tl.velocity_embedding(adata, basis="coord", vkey=v_key_pred)
+#     adata_non_nan = adata[~np.isnan(adata.obsm[f"{v_key_pred}_coord"])].copy()
+#     metric.velo_emb_na_ratio = 1 - adata_non_nan.shape[0] / adata.shape[0]
+#     metric.gen_cbdir = gen_cross_boundary_correctness(adata, cluster_key, v_key_pred, cluster_edges, t_key_true, spatial_graph_key, x_emb="X_coord")
+#     return metric
 
 class BaseEvaluator:
     def __init__(self, 
                  cluster_edges=None,
-                 cluster_key="t_cluster",
-                 t_key_true="true_t",
-                 v_key_true="true_velocity", 
+                 cluster_key=None,#"t_cluster",
+                 t_key_true=None,#"true_t",
+                 v_key_true=None,#"true_velocity", 
                  spatial_graph_key="spatial_graph", 
-                 spatial_key="coord",
+                 spatial_key=None,#"coord",
                  u_key_true="Mu",
                  s_key_true="Ms",
                  n_neighbors=30,
+                 n_pcs=30, # 为了和预处理保持一致
+                 n_spacial_neighbors=30, # 单独处理
                  title=None):
         self.metric = VelocityMetric(title=title)
         self.spatial_key = spatial_key
         self.n_neighbors = n_neighbors
+        self.n_pcs = n_pcs
+        self.n_spacial_neighbors = n_spacial_neighbors
         self.cluster_edges = cluster_edges
         self.cluster_key = cluster_key
         self.t_key_true = t_key_true
@@ -909,7 +924,9 @@ class BaseEvaluator:
         self.spatial_graph_key = spatial_graph_key
         self.u_key_true = u_key_true
         self.s_key_true = s_key_true
-        self.transition_confidence = None
+        # self.transition_confidence = None
+        self.nbs_rep = None # None for default neighbors representation, spatial_key for spatial neighbors representation
+        self.annotation_added = False
         # self.is_neighbors_recomputed = False
 
     def compute_time_corr(self, adata, tkey):
@@ -921,29 +938,44 @@ class BaseEvaluator:
     #     adata.obs[f'{tkey}_mean'] = np.mean(adata.layers[tkey], axis=1)
     #     self.metric.time_corr_spearman_cell_gene = adata.obs[[f'{tkey}_mean', self.t_key_true]].corr(method="spearman").loc[self.t_key_true, f'{tkey}_mean']
 
-    def compute_velocity_acc(self, adata, vkey):
-        self.metric.velocity_acc = velocity_accuracy(adata, vkey, self.v_key_true)
+    def compute_velocity_acc(self, adata, vkey, emb_key=None):
+        """
+        if emb_key is assigned, vkey is seen as key in adata.obsm of velocity embedding,
+        and true velocity will be embedded in the same space.
+        if emb_key is None, vkey is seen as key in adata.layers of velocity matrix.
+        """
+        if emb_key is not None:
+            from scipy.sparse import issparse
+            if issparse(adata.layers[self.v_key_true]):
+                adata.layers[self.v_key_true] = adata.layers[self.v_key_true].toarray()
+            # TODO: check neighbors
+            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=emb_key)
+            # if f"{self.v_key_true}_graph" not in adata.uns:
+            scv.tl.velocity_graph(adata, vkey=self.v_key_true, n_jobs=20)
+            # if f"{self.v_key_true}_{emb_key}" not in adata.obsm.keys():
+            scv.tl.velocity_embedding(adata, vkey=self.v_key_true, basis=emb_key)
+        self.metric.velocity_acc[vkey] = velocity_accuracy(adata, vkey, vkey_true=self.v_key_true if emb_key is None else f"{self.v_key_true}_{emb_key}")
 
     def compute_spatial_time_consist(self, adata, tkey):
-        if self.spatial_graph_key not in adata.obsp.keys():
-            compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_neighbors)
+        # if self.spatial_graph_key not in adata.obsp.keys():
+        #     compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_spacial_neighbors)
         # if self.metric.spatial_time_consist is None:
         #     self.metric.spatial_time_consist = {}
         self.metric.spatial_time_consist[tkey] = spatial_time_consistency(adata, tkey, self.spatial_graph_key)
 
     def compute_spatial_velo_consist(self, adata, vkey):
-        if self.spatial_graph_key not in adata.obsp.keys():
-            compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_neighbors)
+        # if self.spatial_graph_key not in adata.obsp.keys():
+        #     compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_spacial_neighbors)
         # if self.metric.spatial_velo_consist is None:
         #     self.metric.spatial_velo_consist = {}
         self.metric.spatial_velo_consist[vkey] = spatial_velocity_consistency(adata, vkey, self.spatial_graph_key)
 
     def compute_gen_cbdir(self, adata, vkey, basis, tkey=None): # TODO: whether to use basis to compute neighbors
         
-        if self.spatial_graph_key not in adata.obsp.keys() and f"X_{self.spatial_key}" in adata.obsm.keys():
-            compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_neighbors)
-        elif f"X_{self.spatial_key}" not in adata.obsm.keys():
-            self.spatial_graph_key = None
+        # if self.spatial_graph_key not in adata.obsp.keys() and self.spatial_key is not None and f"X_{self.spatial_key}" in adata.obsm.keys():
+        #     compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_spacial_neighbors)
+        # elif self.spatial_key is None or f"X_{self.spatial_key}" not in adata.obsm.keys():
+        #     self.spatial_graph_key = None
         
         # if self.cluster_edges == None and self.t_key_true in adata.obs.keys():
         #     self.cluster_key = "t_cluster"
@@ -953,22 +985,23 @@ class BaseEvaluator:
         # if self.is_neighbors_recomputed == False: # FIXME: adata.uns['neighbors']['indices']
         #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
         #     self.is_neighbors_recomputed = True
-        if 'indices' not in adata.uns['neighbors']:
-            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
-        if f"{vkey}_graph" not in adata.uns:
-            scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
+        # if 'indices' not in adata.uns['neighbors']:
+        #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
+        # if f"{vkey}_graph" not in adata.uns:
+        #     scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
         if f"{vkey}_{basis}" not in adata.obsm.keys():
             scv.tl.velocity_embedding(adata, vkey=vkey, basis=basis)
+            
         cell_types = np.unique(adata.obs[self.cluster_key])
         valid_edges = [(u, v) for u, v in self.cluster_edges if u in cell_types and v in cell_types]
-        self.metric.gen_cbdir[vkey] = gen_cross_boundary_correctness(adata, self.cluster_key, vkey, valid_edges, tkey, x_emb=f"X_{basis}") # TODO: spatial_graph
+        self.metric.gen_cbdir[f"{vkey}_{basis}"] = gen_cross_boundary_correctness(adata, self.cluster_key, vkey, valid_edges, tkey, spatial_graph_key=self.spatial_graph_key if self.spatial_key is not None and basis == self.spatial_key else None, x_emb=f"X_{basis}") # TODO: spatial_graph
     
     def compute_cbdir(self, adata, vkey, basis): # TODO: whether to use basis to compute neighbors
 
-        if self.spatial_graph_key not in adata.obsp.keys() and f"X_{self.spatial_key}" in adata.obsm.keys():
-            compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_neighbors)
-        elif f"X_{self.spatial_key}" not in adata.obsm.keys():
-            self.spatial_graph_key = None
+        # if self.spatial_graph_key not in adata.obsp.keys() and self.spatial_key is not None and f"X_{self.spatial_key}" in adata.obsm.keys():
+        #     compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_spacial_neighbors)
+        # elif self.spatial_key is None or f"X_{self.spatial_key}" not in adata.obsm.keys():
+        #     self.spatial_graph_key = None
 
         # if self.cluster_key == "t_cluster" and self.cluster_key not in adata.obs.keys() and self.t_key_true in adata.obs.keys():
         #     self.cluster_edges = cluster_cells_by_time(adata, self.t_key_true)
@@ -977,15 +1010,15 @@ class BaseEvaluator:
         # if self.is_neighbors_recomputed == False: # FIXME: adata.uns['neighbors']['indices']
         #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
         #     self.is_neighbors_recomputed = True
-        if 'indices' not in adata.uns['neighbors']:
-            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
-        if f"{vkey}_graph" not in adata.uns:
-            scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
+        # if 'indices' not in adata.uns['neighbors']:
+        #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
+        # if f"{vkey}_graph" not in adata.uns:
+        #     scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
         if f"{vkey}_{basis}" not in adata.obsm.keys():
             scv.tl.velocity_embedding(adata, vkey=vkey, basis=basis)
         cell_types = np.unique(adata.obs[self.cluster_key])
         valid_edges = [(u, v) for u, v in self.cluster_edges if u in cell_types and v in cell_types]
-        self.metric.cbdir[vkey] = cross_boundary_correctness(adata, self.cluster_key, vkey, valid_edges, return_raw=True, x_emb=f"X_{basis}") # TODO: spatial_graph
+        self.metric.cbdir[f"{vkey}_{basis}"] = cross_boundary_correctness(adata, self.cluster_key, vkey, valid_edges, spatial_graph_key=self.spatial_graph_key if self.spatial_key is not None and basis == self.spatial_key else None, return_raw=True, x_emb=f"X_{basis}") # TODO: spatial_graph
 
     def compute_time_score(self, adata, tkey):
         # if self.cluster_key == "t_cluster" and self.cluster_key not in adata.obs.keys() and self.t_key_true in adata.obs.keys():
@@ -1000,16 +1033,16 @@ class BaseEvaluator:
         # if self.is_neighbors_recomputed == False: # FIXME: adata.uns['neighbors']['indices']
         #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
         #     self.is_neighbors_recomputed = True
-        if 'indices' not in adata.uns['neighbors']:
-            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
+        # if 'indices' not in adata.uns['neighbors']:
+        #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
         self.metric.inner_cluster_coh[vkey] = inner_cluster_coh(adata, self.cluster_key, vkey, return_raw=True)
 
     def compute_velocity_consistency(self, adata, vkey): # TODO: whether to use basis to compute neighbors
         # if self.is_neighbors_recomputed == False: # FIXME: adata.uns['neighbors']['indices']
         #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
         #     self.is_neighbors_recomputed = True
-        if 'indices' not in adata.uns['neighbors']:
-            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
+        # if 'indices' not in adata.uns['neighbors']:
+        #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors)
         # if self.metric.velocity_consistency is None:
         #     self.metric.velocity_consistency = {}
         self.metric.velocity_consistency[vkey] = velocity_consistency(adata, vkey)
@@ -1017,131 +1050,251 @@ class BaseEvaluator:
     # def compute_abundance_mse(self, adata, ukey, skey):
     #     self.metric.abundance_mse = abundance_mse_us(adata, ukey, self.u_key_true, skey, self.s_key_true)
 
-    def evaluate(self, adata, runner:BaseRunner, vkey, basis, tkey=None, t_key_mean=None, adata_aggr=None, vkey_aggr='vj', use_rep=False):
+    def evaluate(self, runner:BaseRunner, bases):
         # NOTE: temporary solution
-        if use_rep:
-            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
-        if self.cluster_edges == None and self.t_key_true in adata.obs.keys():
-            self.cluster_key = "t_cluster"
-            self.cluster_edges = cluster_cells_by_time(adata, self.t_key_true)
-        
-        adata_no_nan = adata[~np.isnan(adata.layers[vkey]).any(axis=1)].copy()
-        self.metric.velo_na_ratio[vkey] = 1 - adata_no_nan.shape[0] / adata.shape[0]
-        adata_no_nan_no_zero = adata_no_nan[(adata_no_nan.layers[vkey] != 0).any(axis=1)].copy()
-        self.metric.velo_zero_ratio[vkey] = (adata_no_nan.shape[0] - adata_no_nan_no_zero.shape[0]) / adata.shape[0]
+        # if use_rep:
+        #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
+        # bases = [basis] # TODO: make bases argument
+        adata = runner.processed_adata
+        vkey = runner.vkey
+        tkey = runner.tkey
+        t_gene_key = runner.t_gene_key
 
-        if runner.is_real == False: # and runner.latent_time is not None:
+        if self.cluster_edges == None and self.t_key_true is not None:
+            self.cluster_edges = cluster_cells_by_time(adata, self.t_key_true)
+            self.cluster_key = "t_cluster"
+        
+        # NOTE: temporary solution
+        # adata_no_nan = adata[~np.isnan(adata.layers[vkey]).any(axis=1)].copy() # 基本上用不到
+        # self.metric.velo_na_ratio[vkey] = 1 - adata_no_nan.shape[0] / adata.shape[0]
+        # adata_no_nan_no_zero = adata_no_nan[(adata_no_nan.layers[vkey] != 0).any(axis=1)].copy() # 基本上只有topovelo要使用
+        # self.metric.velo_zero_ratio[vkey] = (adata_no_nan.shape[0] - adata_no_nan_no_zero.shape[0]) / adata.shape[0]
+        # if 'neighbors' not in adata.uns.keys() or 'indices' not in adata.uns['neighbors']:
+        # 统一使用默认表示重新计算
+        scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, n_pcs=self.n_pcs)
+        nbs_default, dist_default, conn_default = get_nbs_from_adata(adata)
+        scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
+        # adata_no_nan_no_zero = adata
+
+        if self.t_key_true is not None:
+            # if tkey is not None:
             if tkey is not None:
                 self.compute_time_corr(adata, tkey=tkey)
-            if t_key_mean is not None:
-                self.compute_time_corr(adata, tkey=t_key_mean)
-            self.compute_velocity_acc(adata_no_nan_no_zero, vkey=vkey)
+            if t_gene_key is not None:
+                self.compute_time_corr(adata, tkey=t_gene_key)
+        if self.v_key_true is not None:
+            self.compute_velocity_acc(adata, vkey=vkey)
             # if isinstance(runner, scVeloRunner):
             #     self.compute_time_corr_cell_gene(adata, tkey=runner.t_cell_gene_key)
-        if self.spatial_key is not None and f"X_{self.spatial_key}" in adata.obsm.keys(): # and runner.latent_time is not None:
+        if self.spatial_key is not None:# and f"X_{self.spatial_key}" in adata.obsm.keys():
+            # if self.spatial_graph_key not in adata.obsp.keys():
+            compute_spatial_graph(adata, f"X_{self.spatial_key}", self.n_spacial_neighbors) # 统一重新计算spatial graph
             if tkey is not None:
                 self.compute_spatial_time_consist(adata, tkey=tkey)
-            if t_key_mean is not None:
-                self.compute_spatial_time_consist(adata, tkey=t_key_mean)
-            self.compute_spatial_velo_consist(adata_no_nan_no_zero, vkey)
+            if t_gene_key is not None:
+                self.compute_spatial_time_consist(adata, tkey=t_gene_key)
+            self.compute_spatial_velo_consist(adata, vkey)
 
-        self.compute_velocity_consistency(adata_no_nan_no_zero, vkey)
+        self.compute_velocity_consistency(adata, vkey)
+        self.compute_inner_cluster_coh(adata, vkey)
             
-        self.compute_gen_cbdir(adata_no_nan_no_zero, vkey=vkey, basis=basis) # TODO: tkey
-        self.compute_cbdir(adata_no_nan_no_zero, vkey=vkey, basis=basis)
+        for basis in bases:
+            # if self.spatial_key is not None and basis == self.spatial_key:
+            #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, n_pcs=self.n_pcs, use_rep=self.spatial_key)
+            self.compute_gen_cbdir(adata, vkey=vkey, basis=basis) # TODO: tkey
+            self.compute_cbdir(adata, vkey=vkey, basis=basis)
+        
         if tkey is not None:
             self.compute_time_score(adata, tkey=tkey)
-        if t_key_mean is not None:
-            self.compute_time_score(adata, tkey=t_key_mean)
+        if t_gene_key is not None:
+            self.compute_time_score(adata, tkey=t_gene_key)
 
-        self.compute_inner_cluster_coh(adata_no_nan_no_zero, vkey)
+        if self.spatial_key is not None: # 单独处理空间坐标
+            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=self.spatial_key)
+            nbs_spatial, dist_spatial, conn_spatial = get_nbs_from_adata(adata)
+            scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
+            self.compute_gen_cbdir(adata, vkey=vkey, basis=self.spatial_key)
+            self.compute_cbdir(adata, vkey=vkey, basis=self.spatial_key)
 
-        self.metric.train_time = runner.run_time
+        self.metric.cpu_time = runner.cpu_time
+        self.metric.gpu_time = runner.gpu_time
         self.metric.cpu_mem_usage = runner.max_cpu_mem_usage
         self.metric.gpu_mem_usage = runner.max_gpu_mem_usage
 
-        if adata_aggr is not None:
-            # self.is_neighbors_recomputed = False
-            if f'X_{basis}' not in adata_aggr.obsm.keys():
-                adata_aggr.obsm[f'X_{basis}'] = adata.obsm[f'X_{basis}']
-            if f'X_{self.spatial_key}' not in adata_aggr.obsm.keys() and self.spatial_key is not None and f"X_{self.spatial_key}" in adata.obsm.keys() and self.spatial_key != basis:
-                adata_aggr.obsm[f'X_{self.spatial_key}'] = adata.obsm[f'X_{self.spatial_key}']
-            if self.cluster_key not in adata_aggr.obs.keys():
-                adata_aggr.obs[self.cluster_key] = adata.obs[self.cluster_key].values
-            if self.t_key_true in adata.obs.keys() and self.t_key_true not in adata_aggr.obs.keys():
-                adata_aggr.obs[self.t_key_true] = adata.obs[self.t_key_true].values
-            
-            adata_aggr_no_nan = adata_aggr[~np.isnan(adata_aggr.layers[vkey_aggr]).any(axis=1)].copy()
-            self.metric.velo_na_ratio[vkey_aggr] = 1 - adata_aggr_no_nan.shape[0] / adata_aggr.shape[0]
-            adata_aggr_no_nan_no_zero = adata_aggr_no_nan[(adata_aggr_no_nan.layers[vkey_aggr] != 0).any(axis=1)].copy()
-            self.metric.velo_zero_ratio[vkey_aggr] = (adata_aggr_no_nan.shape[0] - adata_aggr_no_nan_no_zero.shape[0]) / adata_aggr.shape[0]
+        # TODO: check neighbors for adata2
+        adata2, vkey2 = runner.adata2
+        if adata2 is not None:
+            if not self.annotation_added:
+                add_annotations(adata, adata2, bases, self.cluster_key, self.spatial_key, self.t_key_true, runner.tkey, runner.t_gene_key, spatial_graph_key=self.spatial_graph_key if self.spatial_key is not None else None)
+                self.annotation_added = True
+            # recover default neighbors from adata to adata2
+            set_nbs_to_adata(adata2, nbs_default, dist_default, conn_default)
+            scv.tl.velocity_graph(adata2, vkey=vkey2, n_jobs=20)
+            if self.spatial_key is not None:
+                self.compute_spatial_velo_consist(adata2, vkey2)
+            self.compute_velocity_consistency(adata2, vkey2)
+            self.compute_inner_cluster_coh(adata2, vkey2)
+            for basis in bases:
+                self.compute_gen_cbdir(adata2, vkey=vkey2, basis=basis)
+                self.compute_cbdir(adata2, vkey=vkey2, basis=basis)
+            if self.spatial_key is not None:
+                set_nbs_to_adata(adata2, nbs_spatial, dist_spatial, conn_spatial)
+                scv.tl.velocity_graph(adata2, vkey=vkey2, n_jobs=20)
+                self.compute_gen_cbdir(adata2, vkey=vkey2, basis=self.spatial_key)
+                self.compute_cbdir(adata2, vkey=vkey2, basis=self.spatial_key)
+            dimred2 = runner.dimred2
+            if dimred2 is not None:
+                scv.pp.neighbors(adata2, n_neighbors=self.n_neighbors)
+                scv.tl.velocity_graph(adata2, vkey=vkey2, n_jobs=20)
+                self.compute_gen_cbdir(adata2, vkey=vkey2, basis=dimred2)
+                self.compute_cbdir(adata2, vkey=vkey2, basis=dimred2)
+            if self.v_key_true is not None:
+                emb_key, velo_emb_key = runner.emb_keys
+                if emb_key is not None:
+                    self.compute_velocity_acc(adata, vkey=velo_emb_key, emb_key=emb_key)
 
-            if self.spatial_key is not None and f"X_{self.spatial_key}" in adata.obsm.keys():
-                self.compute_spatial_velo_consist(adata_aggr_no_nan_no_zero, vkey_aggr)
-            self.compute_velocity_consistency(adata_aggr_no_nan_no_zero, vkey_aggr)
-            self.compute_gen_cbdir(adata_aggr_no_nan_no_zero, vkey_aggr, basis)
-            self.compute_cbdir(adata_aggr_no_nan_no_zero, vkey_aggr, basis)
-            self.compute_inner_cluster_coh(adata_aggr_no_nan_no_zero, vkey_aggr)
-
-    # NOTE: not used
-    def compute_and_plot_PAGA_graph(self, adata, vkey, basis):
-        if f"{vkey}_graph" not in adata.uns:
-            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
-            scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
-        adata.uns['neighbors']['distances'] = adata.obsp['distances']
-        adata.uns['neighbors']['connectivities'] = adata.obsp['connectivities']
-        scv.tl.paga(adata, self.cluster_key, vkey)
-        self.transition_confidence = scv.get_df(adata, 'paga/transitions_confidence', precision=2).T
-        scv.pl.paga(adata, basis=basis, vkey=vkey, size=50, alpha=.1,
-            min_edge_width=2, node_size_scale=1.5, color=self.cluster_key)
-        plt.tight_layout()
-
-    def plot_velocity_stream(self, adata, basis, vkey, save_dir, adata_aggr=None, vkey_aggr='vj'):
+    def plot_velocity_stream(self, runner:BaseRunner, bases, save_dir):
         # if f"X_{self.spatial_key}" in adata.obsm.keys():
         #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=self.spatial_key)
         # else:
         #     scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep="pca")
-        if f"{vkey}_graph" not in adata.uns:
-            # scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis) # FIXME:
+        adata = runner.processed_adata
+        vkey = runner.vkey
+        # if f"{vkey}_graph" not in adata.uns:
+        # 统一使用默认表示重新计算
+        scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, n_pcs=self.n_pcs)
+        nbs_default, dist_default, conn_default = get_nbs_from_adata(adata)
+        scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
+        for basis in bases:
+            self.plot_and_save_velo(adata, vkey, basis, save_dir)
+        if self.spatial_key is not None: # 单独处理空间坐标
+            scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=self.spatial_key)
+            nbs_spatial, dist_spatial, conn_spatial = get_nbs_from_adata(adata)
             scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
-        scv.pl.velocity_embedding_stream(adata, basis=basis, vkey=vkey, color=self.cluster_key if self.cluster_key != 't_cluster' else self.t_key_true,
-                                        legend_loc="lower right", legend_fontsize=8, color_map='viridis' if self.cluster_key=='t_cluster' else None)
-        if self.cluster_key != 't_cluster':
+            self.plot_and_save_velo(adata, vkey, self.spatial_key, save_dir)
+        
+        # TODO: check neighbors for adata2
+        adata2, vkey2 = runner.adata2
+        if adata2 is not None:
+            if not self.annotation_added:
+                add_annotations(adata, adata2, bases, self.cluster_key, self.spatial_key, self.t_key_true)
+            # if f"{vkey2}_graph" not in adata2.uns:
+                # scv.pp.neighbors(adata_aggr, n_neighbors=self.n_neighbors, use_rep=basis) # FIXME:
+            set_nbs_to_adata(adata2, nbs_default, dist_default, conn_default)
+            scv.tl.velocity_graph(adata2, vkey=vkey2, n_jobs=20)
+            for basis in bases:
+                self.plot_and_save_velo(adata2, vkey2, basis, save_dir)
+            if self.spatial_key is not None:
+                set_nbs_to_adata(adata2, nbs_spatial, dist_spatial, conn_spatial)
+                scv.tl.velocity_graph(adata2, vkey=vkey2, n_jobs=20)
+                self.plot_and_save_velo(adata2, vkey2, self.spatial_key, save_dir)
+            dimred2 = runner.dimred2
+            if dimred2 is not None:
+                scv.pp.neighbors(adata2, n_neighbors=self.n_neighbors)
+                scv.tl.velocity_graph(adata2, vkey=vkey2, n_jobs=20)
+                self.plot_and_save_velo(adata2, vkey2, dimred2, save_dir)
+
+    def plot_time(self, runner: BaseRunner, bases, save_dir):
+        adata = runner.processed_adata
+        adata2, _ = runner.adata2
+        dimred2 = runner.dimred2
+        # bases = bases.copy()
+        # if dimred2 is not None:
+        #     bases.append(dimred2)
+        for key in [runner.tkey, runner.t_gene_key]:
+            if key is not None:
+                for basis in bases:
+                    scv.pl.scatter(adata, basis=basis, color=key, color_map='viridis')
+                    plt.savefig(f"{save_dir}/{key}_{basis}.svg", format='svg', dpi=300)
+                if self.spatial_key is not None:
+                    scv.pl.scatter(adata, basis=self.spatial_key, color=key, color_map='viridis')
+                    plt.savefig(f"{save_dir}/{key}_{self.spatial_key}.svg", format='svg', dpi=300)
+        if adata2 is not None and dimred2 is not None:
+            if not self.annotation_added:
+                add_annotations(adata, adata2, tkey_true=self.t_key_true, tkey=runner.tkey, t_gene_key=runner.t_gene_key)
+            for key in [runner.tkey, runner.t_gene_key]: # NOTE: may cause error if runner's tkey not in aux adata
+                if key is not None:
+                    scv.pl.scatter(adata2, basis=dimred2, color=key, color_map='viridis')
+                    plt.savefig(f"{save_dir}/{key}_{dimred2}.svg", format='svg', dpi=300)
+
+    def plot_and_save_velo(self, adata, vkey, basis, save_dir):
+        if self.cluster_key == "t_cluster" or self.cluster_key is None:
+            color = self.t_key_true
+        else:
+            color = self.cluster_key
+        scv.pl.velocity_embedding_stream(adata, basis=basis, vkey=vkey, color=color, legend_loc="lower right", legend_fontsize=8, color_map='viridis' if color == self.t_key_true else None)
+        if color == self.cluster_key:
             plt.tight_layout()
         plt.savefig(f"{save_dir}/{vkey}_{basis}.svg", format='svg', dpi=300)
-        if adata_aggr is not None:
-            if f'X_{basis}' not in adata_aggr.obsm.keys():
-                adata_aggr.obsm[f'X_{basis}'] = adata.obsm[f'X_{basis}']
-            if f'X_{self.spatial_key}' not in adata_aggr.obsm.keys() and self.spatial_key is not None and f"X_{self.spatial_key}" in adata.obsm.keys() and self.spatial_key != basis:
-                adata_aggr.obsm[f'X_{self.spatial_key}'] = adata.obsm[f'X_{self.spatial_key}']
-            if self.cluster_key not in adata_aggr.obs.keys():
-                adata_aggr.obs[self.cluster_key] = adata.obs[self.cluster_key]
-            if self.t_key_true in adata.obs.keys() and self.t_key_true not in adata_aggr.obs.keys():
-                adata_aggr.obs[self.t_key_true] = adata.obs[self.t_key_true]
-            if f"{vkey_aggr}_graph" not in adata_aggr.uns:
-                # scv.pp.neighbors(adata_aggr, n_neighbors=self.n_neighbors, use_rep=basis) # FIXME:
-                scv.tl.velocity_graph(adata_aggr, vkey=vkey_aggr, n_jobs=20)
-            scv.pl.velocity_embedding_stream(adata_aggr, basis=basis, vkey=vkey_aggr, color=self.cluster_key if self.cluster_key != 't_cluster' else self.t_key_true,
-                                             legend_loc="lower right", legend_fontsize=8, color_map='viridis' if self.cluster_key=='t_cluster' else None)
-            if self.cluster_key != 't_cluster':
-                plt.tight_layout()
-            plt.savefig(f"{save_dir}/{vkey_aggr}_{basis}.svg", format='svg', dpi=300)
 
-    def plot_time(self, adata, basis, tkey, save_dir, tkey_mean=None):
-        scv.pl.scatter(adata, basis=basis, color=tkey, color_map='viridis')
-        plt.savefig(f"{save_dir}/{tkey}_{basis}.svg", format='svg', dpi=300)
-        if tkey_mean is not None:
-            scv.pl.scatter(adata, basis=basis, color=tkey_mean, color_map='viridis')
-            plt.savefig(f"{save_dir}/{tkey_mean}_{basis}.svg", format='svg', dpi=300)
+    # NOTE: not used
+    # def compute_and_plot_PAGA_graph(self, adata, vkey, basis):
+    #     if f"{vkey}_graph" not in adata.uns:
+    #         scv.pp.neighbors(adata, n_neighbors=self.n_neighbors, use_rep=basis)
+    #         scv.tl.velocity_graph(adata, vkey=vkey, n_jobs=20)
+    #     adata.uns['neighbors']['distances'] = adata.obsp['distances']
+    #     adata.uns['neighbors']['connectivities'] = adata.obsp['connectivities']
+    #     scv.tl.paga(adata, self.cluster_key, vkey)
+    #     self.transition_confidence = scv.get_df(adata, 'paga/transitions_confidence', precision=2).T
+    #     scv.pl.paga(adata, basis=basis, vkey=vkey, size=50, alpha=.1,
+    #         min_edge_width=2, node_size_scale=1.5, color=self.cluster_key)
+    #     plt.tight_layout()
 
+def add_annotations(adata, adata2, bases=None, cluster_key=None, spatial_key=None, tkey_true=None, tkey=None, t_gene_key=None, spatial_graph_key=None):
+    """add annotations to adata2 from adata
 
-if __name__ == "__main__":
-    import scanpy as sc
-    adata = sc.read_h5ad("/HDD1/chensishuo/spvelo_data/simulate/bidirect/exp_noise/0.5/20240605_222510/data_simu.h5ad")
-    adata.obs["pred_t"] = adata.obs["true_t"]
-    adata.layers["velocity_pred"] = adata.layers["velocity"]
-    # sc.pp.pca(adata)
-    metric = evaluate_metrics(adata, spatial_key="X_coord")
-    print(metric)
-    print(metric.gen_cbdir_edge)
-    print(metric.to_series())
+    Args:
+        adata (AnnData): original AnnData object containing annotations
+        adata2 (AnnData): auxiliary AnnData object to add annotations to
+        bases (list[str]): list of basis keys in adata.obsm to be added to adata2
+        cluster_key (str): cell type key in adata.obs to be added to adata2
+        spatial_key (str, optional): spatial key in adata.obsm to be added to adata2. Defaults to None.
+        tkey_true (str, optional): true time key in adata.obs to be added to adata2. Defaults to None.
+        spatial_graph_key (str, optional): spatial graph key in adata.obsp to be added to adata2. Defaults to None.
+    """
+    if bases is not None:
+        for basis in bases:
+            if f"X_{basis}" not in adata2.obsm.keys():
+                adata2.obsm[f"X_{basis}"] = adata.obsm[f"X_{basis}"]
+    if spatial_key is not None and f"X_{spatial_key}" not in adata2.obsm.keys():
+        adata2.obsm[f"X_{spatial_key}"] = adata.obsm[f"X_{spatial_key}"]
+    if cluster_key is not None and cluster_key not in adata2.obs.keys():
+        adata2.obs[cluster_key] = adata.obs[cluster_key].values
+    if tkey_true is not None and tkey_true not in adata2.obs.keys():
+        adata2.obs[tkey_true] = adata.obs[tkey_true].values
+    for key in [tkey, t_gene_key]:
+        if key is not None:
+            adata2.obs[key] = adata.obs[key].values
+    if spatial_graph_key is not None and spatial_graph_key not in adata2.obsp.keys():
+        adata2.obsp[spatial_graph_key] = adata.obsp[spatial_graph_key]
+
+def get_nbs_from_adata(adata):
+    """backup neighbors for adata to avoid recomputing
+
+    Args:
+        adata (AnnData): original AnnData object containing annotations
+
+    Returns:
+        tuple: neighbors, distances, connectivities
+    """
+    import copy
+    nbs = copy.deepcopy(adata.uns['neighbors'])
+    dist = adata.obsp['distances'].copy()
+    conn = adata.obsp['connectivities'].copy()
+    return nbs, dist, conn
+
+def set_nbs_to_adata(adata, nbs, dist, conn):
+    adata.uns['neighbors'] = nbs
+    adata.obsp['distances'] = dist
+    adata.obsp['connectivities'] = conn
+
+# if __name__ == "__main__":
+#     import scanpy as sc
+#     adata = sc.read_h5ad("/HDD1/chensishuo/spvelo_data/simulate/bidirect/exp_noise/0.5/20240605_222510/data_simu.h5ad")
+#     adata.obs["pred_t"] = adata.obs["true_t"]
+#     adata.layers["velocity_pred"] = adata.layers["velocity"]
+#     # sc.pp.pca(adata)
+#     metric = evaluate_metrics(adata, spatial_key="X_coord")
+#     print(metric)
+#     print(metric.gen_cbdir_edge)
+#     print(metric.to_series())

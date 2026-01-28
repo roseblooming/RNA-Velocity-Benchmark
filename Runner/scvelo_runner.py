@@ -4,24 +4,25 @@ import numpy as np
 
 
 class scVeloRunner(BaseRunner):
-    def __init__(self, model, adata, is_real, pp_choice=0, save_dir="logs/scvelo"):
+    def __init__(self, model, adata, pp_choice=0, n_hvg=2000, save_dir="logs/scvelo", label=None):
         self.model = model
-        # self.is_real = is_real
-        self.t_cell_gene_key = 'fit_t'
-        super().__init__(model_name=f"scvelo_{model}", adata=adata, is_real=is_real, pp_choice=pp_choice, save_dir=save_dir)
+        super().__init__(model_name=f"scvelo_{model}", adata=adata, pp_choice=pp_choice, n_hvg=n_hvg, save_dir=save_dir, label=label)
+        self.t_gene_key = 'fit_t'
     
-    def preprocess_real(self):
-        scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=2000)
-        scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
+    # def preprocess_real(self):
+    #     scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=self.n_hvg)
+    #     scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
     
-    def preprocess_simulation(self):
-        scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
+    # def preprocess_simulation(self):
+    #     scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
     
     def preprocess(self):
-        if self.pp_choice == 0 and self.is_real:
-            self.preprocess_real()
-        elif self.pp_choice == 0 or self.pp_choice == 1:
-            self.preprocess_simulation()
+        if self.pp_choice == 0:
+            scv.pp.filter_and_normalize(self.adata, min_shared_counts=20, n_top_genes=self.n_hvg)
+        elif self.pp_choice == 3:
+            scv.pp.filter_and_normalize(self.adata)
+        if self.pp_choice in [0, 1, 3]:
+            scv.pp.moments(self.adata, n_pcs=30, n_neighbors=30)
 
     def get_reconstruct_us(self):
         # TODO: compute according to ode.
@@ -47,14 +48,18 @@ class scVeloRunner(BaseRunner):
     def train(self):
         if self.model == "stochastic":
             scv.tl.velocity(self.adata, mode="stochastic")
-            scv.tl.latent_time(self.adata)
+            # scv.tl.latent_time(self.adata)
+            scv.tl.velocity_pseudotime(self.adata)
         else:
             # scv.tl.recover_dynamics(self.adata, use_raw=True)
             scv.tl.recover_dynamics(self.adata,n_jobs=20)
-            scv.tl.velocity(self.adata, mode="dynamical")
+            scv.tl.velocity(self.adata, mode="dynamical") # TODO: check diff_kinetics
             scv.tl.velocity_graph(self.adata,n_jobs=20)
             scv.tl.latent_time(self.adata)
 
+    def postprocess(self):
+        self.adata = self.adata[:, self.adata.var["velocity_genes"]].copy()
+        return super().postprocess()
 
 if __name__ == "__main__":
     adata = scv.datasets.simulation(n_obs=1000, n_vars=300)

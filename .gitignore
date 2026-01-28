@@ -5,3 +5,9 @@ results/
 scripts_back/
 env_config/
 topo_simu/
+bash/
+plot/
+scripts/
+notebooks/
+plot/
+utils/plotting.py

@@ -12,40 +12,45 @@ import scvelo as scv
 
 
 class UniTVeloRunner(BaseRunner):
-    def __init__(self, adata, is_real, pp_choice=0, 
+    def __init__(self, adata, pp_choice=0, n_hvg=2000, 
                  device = 0, 
                  save_dir = "logs/unitvelo",
-                 r2_adjust = False,
+                 r2_adjust = True, # False, # NOTE: modified on 2025-3-18
                  label = None):
-        self.device = device
         self.model = None
-        # self.is_real = is_real
         self.config = utv.config.Configuration()
         self.config.R2_ADJUST = r2_adjust
-        self.config.GPU = device
-        self.label = label
-        super().__init__("unitvelo", adata, is_real, pp_choice, save_dir)
+        # self.config.GPU = device
+        self.config.N_TOP_GENES = n_hvg
+        super().__init__(model_name="unitvelo", adata=adata, pp_choice=pp_choice, n_hvg=n_hvg, save_dir=save_dir, label=label, device=device)
 
-    def preprocess_real(self):
-        scv.pp.filter_and_normalize(self.adata, 
-                                    min_shared_counts=self.config.MIN_SHARED_COUNTS, 
-                                    n_top_genes=self.config.N_TOP_GENES)
-        scv.pp.moments(self.adata, 
-                        n_pcs=self.config.N_PCS, 
-                        n_neighbors=self.config.N_NEIGHBORS)
+    # def preprocess_real(self):
+    #     scv.pp.filter_and_normalize(self.adata, 
+    #                                 min_shared_counts=self.config.MIN_SHARED_COUNTS, 
+    #                                 n_top_genes=self.config.N_TOP_GENES)
+    #     scv.pp.moments(self.adata, 
+    #                     n_pcs=self.config.N_PCS, 
+    #                     n_neighbors=self.config.N_NEIGHBORS)
     
-    def preprocess_simulation(self):
-        scv.pp.moments(self.adata, 
-                        n_pcs=self.config.N_PCS, 
-                        n_neighbors=self.config.N_NEIGHBORS)
+    # def preprocess_simulation(self):
+    #     scv.pp.moments(self.adata, 
+    #                     n_pcs=self.config.N_PCS, 
+    #                     n_neighbors=self.config.N_NEIGHBORS)
     
     def preprocess(self):
+        if self.pp_choice == 0:
+            scv.pp.filter_and_normalize(self.adata, 
+                                    min_shared_counts=self.config.MIN_SHARED_COUNTS, 
+                                    n_top_genes=self.config.N_TOP_GENES)
+        elif self.pp_choice == 3:
+            scv.pp.filter_and_normalize(self.adata)
+        if self.pp_choice in [0, 1, 3]:
+            scv.pp.moments(self.adata, 
+                        n_pcs=self.config.N_PCS, 
+                        n_neighbors=self.config.N_NEIGHBORS)
+            
         if 'highly_variable' not in self.adata.var:
             self.adata.var['highly_variable'] = True
-        if self.pp_choice == 0 and self.is_real:
-            self.preprocess_real()
-        elif self.pp_choice == 0 or self.pp_choice == 1:
-            self.preprocess_simulation()
         # os.makedirs(self.save_dir, exist_ok=True)
         data_path = f'{self.save_dir}/dataset.h5ad'
         # self.adata.write(data_path, compression='gzip')
@@ -93,6 +98,10 @@ class UniTVeloRunner(BaseRunner):
         # if 'examine_genes' in self.adata.uns.keys():
         #     from unitvelo.individual_gene import exam_genes
         #     exam_genes(self.adata, self.adata.uns['examine_genes'])
+
+    def postprocess(self):
+        self.adata = self.adata[:, ~np.isnan(self.adata.layers[self.vkey]).any(axis=0)].copy()
+        return super().postprocess()
     
     def save_adata(self):
         #TODO save model
