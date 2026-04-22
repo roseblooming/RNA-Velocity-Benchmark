@@ -6,7 +6,7 @@
 - deepvelo_cui: DeepVelo (Cui et al), scVelo and TopoVelo; Not capable of plotting
 
 ## Directories
-- models: Method src code for TopoVelo and STT
+- models: Method src code of TopoVelo and STT
 - Runner: Caller of each method for processing pipeline
 - MetricEvaluator: Evaluation Module
 - utils: Tools for memory monitoring and plotting
