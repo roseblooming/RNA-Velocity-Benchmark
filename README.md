@@ -1,11 +1,11 @@
-RNA Velocity Benchmark Repository
+# RNA Velocity Benchmark Repository
 
-# Environments
+## Environments
 - velo_env_new: Except for DeepVelo (Cui et al) and STT
 - velo_env_stt: Except for UniTVelo, DeepVelo (Cui et al) and veloVI
 - deepvelo_cui: DeepVelo (Cui et al), scVelo and TopoVelo; Not capable of plotting
 
-# Directories
+## Directories
 - models: Method src code for TopoVelo and STT
 - Runner: Caller of each method for processing pipeline
 - MetricEvaluator: Evaluation Module
